@@ -24,6 +24,17 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  api:
+    build: ./services/api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://codex:codex@postgres:5432/codex
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
 volumes:
   postgres_data:
   redis_data:
