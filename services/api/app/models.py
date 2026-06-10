@@ -16,3 +16,13 @@ class Repo(Base):
     source = Column(String, nullable=False)  # github or local
     status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class RepoFile(Base):
+    __tablename__ = "repo_files"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    repo_id = Column(UUID(as_uuid=True), nullable=False)
+    path = Column(String, nullable=False)
+    language = Column(String)
+    content_hash = Column(String)
+    parsed_at = Column(DateTime(timezone=True), nullable=True)
