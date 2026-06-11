@@ -26,3 +26,17 @@ class RepoFile(Base):
     language = Column(String)
     content_hash = Column(String)
     parsed_at = Column(DateTime(timezone=True), nullable=True)
+
+class Symbol(Base):
+    __tablename__ = "symbols"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    file_id = Column(UUID(as_uuid=True), nullable=False)
+    repo_id = Column(UUID(as_uuid=True), nullable=False)
+    name = Column(String, nullable=False)
+    kind = Column(String, nullable=False)  # function or class
+    start_line = Column(Integer)
+    end_line = Column(Integer)
+    signature = Column(Text)
+    docstring = Column(Text)
+    raw_source = Column(Text)

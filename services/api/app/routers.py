@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.parser import parse_python_file
+from app.models import Repo, RepoFile, Symbol
+
 from app.database import get_db
 from app.models import Repo, RepoFile
 
@@ -15,24 +18,19 @@ async def ingest_repo(
     folder_path: str,
     db: AsyncSession = Depends(get_db),
 ):
-    # check folder exists
     if not os.path.exists(folder_path):
         raise HTTPException(status_code=400, detail="Folder not found")
 
-    # save repo record
     repo = Repo(
         name=folder_path.split("/")[-1],
         source="local",
         status="indexing",
     )
     db.add(repo)
-    await db.commit()
-    await db.refresh(repo)
+    await db.flush()  # get repo.id
 
-    # walk the folder and find python files
     files_found = []
     for root, dirs, files in os.walk(folder_path):
-        # skip junk folders
         dirs[:] = [d for d in dirs if d not in {
             "__pycache__", ".git", ".venv", "venv", "node_modules"
         }]
@@ -41,7 +39,6 @@ async def ingest_repo(
                 full_path = os.path.join(root, file)
                 relative_path = os.path.relpath(full_path, folder_path)
 
-                # hash the file content
                 content = open(full_path, "rb").read()
                 content_hash = hashlib.sha256(content).hexdigest()
 
@@ -52,9 +49,38 @@ async def ingest_repo(
                     content_hash=content_hash,
                 )
                 db.add(repo_file)
+                await db.flush()  # get repo_file.id
+
+                source_code = open(full_path, "r", errors="replace").read()
+                symbols = parse_python_file(source_code)
+
+                for sym in symbols:
+                    db.add(Symbol(
+                        file_id=repo_file.id,
+                        repo_id=repo.id,
+                        name=sym["name"],
+                        kind=sym["kind"],
+                        start_line=sym["start_line"],
+                        end_line=sym["end_line"],
+                        signature=sym["signature"],
+                        docstring=sym.get("docstring"),
+                        raw_source=sym["raw_source"][:2000],
+                    ))
+                    for method in sym.get("methods", []):
+                        db.add(Symbol(
+                            file_id=repo_file.id,
+                            repo_id=repo.id,
+                            name=method["name"],
+                            kind=method["kind"],
+                            start_line=method["start_line"],
+                            end_line=method["end_line"],
+                            signature=method["signature"],
+                            docstring=method.get("docstring"),
+                            raw_source=method["raw_source"][:2000],
+                        ))
+
                 files_found.append(relative_path)
 
-    # update repo status
     repo.status = "parsed"
     await db.commit()
 
