@@ -10,6 +10,8 @@ from app.models import Repo, RepoFile, Symbol
 from app.database import get_db
 from app.models import Repo, RepoFile
 
+from app.embedder import embed_symbols
+
 router = APIRouter()
 
 
@@ -81,7 +83,30 @@ async def ingest_repo(
 
                 files_found.append(relative_path)
 
-    repo.status = "parsed"
+    result = await db.execute(
+        select(Symbol, RepoFile.path)
+        .join(RepoFile, Symbol.file_id == RepoFile.id)
+        .where(Symbol.repo_id == repo.id)
+    )
+    rows = result.all()
+
+    symbols_for_embedding = [
+        {
+            "id": str(row.Symbol.id),
+            "name": row.Symbol.name,
+            "kind": row.Symbol.kind,
+            "signature": row.Symbol.signature,
+            "docstring": row.Symbol.docstring,
+            "raw_source": row.Symbol.raw_source,
+            "file_path": row.path,
+            "start_line": row.Symbol.start_line,
+            "end_line": row.Symbol.end_line,
+        }
+        for row in rows
+    ]
+
+    embedded_count = await embed_symbols(symbols_for_embedding, str(repo.id))
+    repo.status = "ready"
     await db.commit()
 
     return {
@@ -89,7 +114,8 @@ async def ingest_repo(
         "name": repo.name,
         "status": repo.status,
         "files_found": len(files_found),
-        "files": files_found,
+        "symbols_found": len(symbols_for_embedding),
+        "symbols_embedded": embedded_count,
     }
 
 
@@ -100,4 +126,38 @@ async def list_repos(db: AsyncSession = Depends(get_db)):
     return [
         {"id": str(r.id), "name": r.name, "status": r.status}
         for r in repos
+    ]
+
+@router.get("/repos/{repo_id}/search")
+async def search_repo(
+    repo_id: str,
+    query: str,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.embedder import get_embedding, get_qdrant_client, COLLECTION_NAME
+
+    # embed the search query
+    query_vector = await get_embedding(query)
+
+    # search qdrant
+    client = get_qdrant_client()
+    results = client.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=query_vector,
+        query_filter={
+            "must": [{"key": "repo_id", "match": {"value": repo_id}}]
+        },
+        limit=5,
+    )
+
+    return [
+        {
+            "name": r.payload["name"],
+            "kind": r.payload["kind"],
+            "file_path": r.payload["file_path"],
+            "start_line": r.payload["start_line"],
+            "signature": r.payload["signature"],
+            "score": round(r.score, 4),
+        }
+        for r in results
     ]

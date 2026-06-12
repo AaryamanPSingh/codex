@@ -36,8 +36,16 @@ services:
       - redis
     volumes:
       - /home/aaryaman/repos:/repos
+  
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
 
 volumes:
   postgres_data:
   redis_data:
   qdrant_data:
+  ollama_data:
