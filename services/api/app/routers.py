@@ -12,6 +12,8 @@ from app.models import Repo, RepoFile
 
 from app.embedder import embed_symbols
 
+from app.docgen import generate_readme
+
 router = APIRouter()
 
 
@@ -86,7 +88,8 @@ async def ingest_repo(
     result = await db.execute(
         select(Symbol, RepoFile.path)
         .join(RepoFile, Symbol.file_id == RepoFile.id)
-        .where(Symbol.repo_id == repo.id)
+        .where(Symbol.repo_id == repo_id)
+        .limit(10)
     )
     rows = result.all()
 
@@ -161,3 +164,37 @@ async def search_repo(
         }
         for r in results
     ]
+
+@router.post("/repos/{repo_id}/readme")
+async def generate_repo_readme(
+    repo_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    # get repo
+    result = await db.execute(select(Repo).where(Repo.id == repo_id))
+    repo = result.scalar_one_or_none()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repo not found")
+
+    # get all symbols
+    result = await db.execute(
+        select(Symbol, RepoFile.path)
+        .join(RepoFile, Symbol.file_id == RepoFile.id)
+        .where(Symbol.repo_id == repo_id)
+    )
+    rows = result.all()
+
+    symbols = [
+        {
+            "name": row.Symbol.name,
+            "kind": row.Symbol.kind,
+            "signature": row.Symbol.signature,
+            "docstring": row.Symbol.docstring,
+            "file_path": row.path,
+        }
+        for row in rows
+    ]
+
+    readme = await generate_readme(repo.name, symbols)
+
+    return {"readme": readme}
