@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CodeX</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #0f172a;
+            color: #e2e8f0;
+            font-family: sans-serif;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 24px;
+            max-width: 800px;
+        }
+
+        h2 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: #94a3b8;
+        }
+
+        input {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px 14px;
+            color: #e2e8f0;
+            font-size: 14px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+
+        button {
+            background: #1d4ed8;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background: #334155;
+            color: #64748b;
+            cursor: not-allowed;
+        }
+
+        .result {
+            margin-top: 16px;
+            background: #0f172a;
+            border-radius: 6px;
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            display: none;
+        }
+
+        .symbol {
+            background: #0f172a;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+
+        .symbol-name {
+            color: #60a5fa;
+            font-weight: 600;
+            font-family: monospace;
+        }
+
+        .symbol-meta {
+            color: #64748b;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .score {
+            float: right;
+            color: #4ade80;
+            font-size: 12px;
+        }
+
+        .status {
+            color: #4ade80;
+            font-size: 13px;
+            margin-top: 12px;
+            display: none;
+        }
+
+        .error {
+            color: #f87171;
+            font-size: 13px;
+            margin-top: 12px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>CodeX</h1>
+    <p class="subtitle">AI-powered documentation generator</p>
+
+    <!-- Ingest -->
+    <div class="card">
+        <h2>Import Repository</h2>
+        <input id="folder-path" type="text" placeholder="/repos/myproject" />
+        <button id="ingest-btn" onclick="ingest()">Ingest</button>
+        <div class="status" id="ingest-status"></div>
+        <div class="error" id="ingest-error"></div>
+    </div>
+
+    <!-- Search -->
+    <div class="card">
+        <h2>Search Codebase</h2>
+        <input id="repo-id" type="text" placeholder="Repo ID (from ingest result)" />
+        <input id="search-query" type="text" placeholder="e.g. database connection" />
+        <button id="search-btn" onclick="search()">Search</button>
+        <div id="search-results"></div>
+    </div>
+
+    <!-- README -->
+    <div class="card">
+        <h2>Generate README</h2>
+        <input id="readme-repo-id" type="text" placeholder="Repo ID (from ingest result)" />
+        <button id="readme-btn" onclick="generateReadme()">Generate</button>
+        <div class="status" id="readme-status"></div>
+        <div class="result" id="readme-result"></div>
+    </div>
+
+    <script>
+        async function ingest() {
+            const path = document.getElementById("folder-path").value.trim()
+            if (!path) return
+
+            const btn = document.getElementById("ingest-btn")
+            const status = document.getElementById("ingest-status")
+            const error = document.getElementById("ingest-error")
+
+            btn.disabled = true
+            btn.textContent = "Ingesting..."
+            status.style.display = "none"
+            error.style.display = "none"
+
+            try {
+                const res = await fetch(`/repos/ingest?folder_path=${encodeURIComponent(path)}`, {
+                    method: "POST"
+                })
+                const data = await res.json()
+
+                if (!res.ok) {
+                    error.textContent = data.detail || "Something went wrong"
+                    error.style.display = "block"
+                    return
+                }
+
+                status.textContent = `✓ Done! Repo ID: ${data.id} | Files: ${data.files_found} | Symbols: ${data.symbols_found} | Status: ${data.status}`
+                status.style.display = "block"
+
+                // auto fill repo id fields
+                document.getElementById("repo-id").value = data.id
+                document.getElementById("readme-repo-id").value = data.id
+
+            } catch (e) {
+                error.textContent = "Request failed: " + e.message
+                error.style.display = "block"
+            } finally {
+                btn.disabled = false
+                btn.textContent = "Ingest"
+            }
+        }
+
+        async function search() {
+            const repoId = document.getElementById("repo-id").value.trim()
+            const query = document.getElementById("search-query").value.trim()
+            if (!repoId || !query) return
+
+            const btn = document.getElementById("search-btn")
+            const results = document.getElementById("search-results")
+
+            btn.disabled = true
+            btn.textContent = "Searching..."
+            results.innerHTML = ""
+
+            try {
+                const res = await fetch(`/repos/${repoId}/search?query=${encodeURIComponent(query)}`)
+                const data = await res.json()
+
+                if (!data.length) {
+                    results.innerHTML = '<p style="color:#64748b;margin-top:12px">No results found</p>'
+                    return
+                }
+
+                results.innerHTML = data.map(r => `
+                    <div class="symbol">
+                        <span class="score">${r.score}</span>
+                        <div class="symbol-name">${r.name}</div>
+                        <div class="symbol-meta">${r.kind} · ${r.file_path} · line ${r.start_line}</div>
+                        <div style="color:#94a3b8;font-size:12px;margin-top:6px;font-family:monospace">${r.signature || ""}</div>
+                    </div>
+                `).join("")
+
+            } catch (e) {
+                results.innerHTML = `<p style="color:#f87171;margin-top:12px">Error: ${e.message}</p>`
+            } finally {
+                btn.disabled = false
+                btn.textContent = "Search"
+            }
+        }
+
+        async function generateReadme() {
+            const repoId = document.getElementById("readme-repo-id").value.trim()
+            if (!repoId) return
+
+            const btn = document.getElementById("readme-btn")
+            const status = document.getElementById("readme-status")
+            const result = document.getElementById("readme-result")
+
+            btn.disabled = true
+            btn.textContent = "Generating... (this takes ~1 min)"
+            status.style.display = "none"
+            result.style.display = "none"
+
+            try {
+                const res = await fetch(`/repos/${repoId}/readme`, { method: "POST" })
+                const data = await res.json()
+
+                result.textContent = data.readme
+                result.style.display = "block"
+                status.textContent = "✓ README generated"
+                status.style.display = "block"
+
+            } catch (e) {
+                status.textContent = "Error: " + e.message
+                status.style.display = "block"
+            } finally {
+                btn.disabled = false
+                btn.textContent = "Generate"
+            }
+        }
+    </script>
+
+</body>
+</html>

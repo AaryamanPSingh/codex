@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
-from app.models import Repo
-
+from app.models import Repo, RepoFile, Symbol
 from app.routers import router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -21,7 +22,4 @@ app = FastAPI(
 )
 
 app.include_router(router)
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+app.mount("/", StaticFiles(directory="app/static", html=True), name="static")

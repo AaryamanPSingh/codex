@@ -88,7 +88,7 @@ async def ingest_repo(
     result = await db.execute(
         select(Symbol, RepoFile.path)
         .join(RepoFile, Symbol.file_id == RepoFile.id)
-        .where(Symbol.repo_id == repo_id)
+        .where(Symbol.repo_id == repo.id)
         .limit(10)
     )
     rows = result.all()
